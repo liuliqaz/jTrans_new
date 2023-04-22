@@ -161,6 +161,7 @@ def load_data_wiki(data_dir, batch_size, max_len, num_workers):
     train_iter = torch.utils.data.DataLoader(train_set, batch_size, shuffle=True, num_workers=num_workers)
     return train_iter, train_set.vocab
 
+
 def load_jTrans_data(data_dir, batch_size, max_len, num_workers):
     paragraphs = _read_jTrans(data_dir)
     train_set = _WikiTextDataset(paragraphs, max_len)

@@ -4,7 +4,40 @@ from torch import nn
 import time
 import numpy as np
 from matplotlib import pyplot as plt
+import pandas as pd
 
+
+def draw_box(data):
+
+    # 将字典数据转换为DataFrame格式
+    df = pd.DataFrame({'Sentence Length': list(data.keys()), 'Count': list(data.values())})
+
+    # 绘制箱型图
+    df.boxplot(column='Sentence Length')
+
+    # 添加标题和轴标签
+    plt.title('Sentence Length Distribution')
+    plt.ylabel('Sentence Length')
+
+    # 显示图形
+    plt.show()
+
+
+def draw_column(data):
+    # 将字典数据中的键和值分别存储到列表中
+    x = list(data.keys())
+    y = list(data.values())
+
+    # 绘制柱状图
+    plt.bar(x, y)
+
+    # 添加标题和轴标签
+    plt.title('Sentence Length Distribution')
+    plt.xlabel('Sentence Length')
+    plt.ylabel('Count')
+
+    # 显示图形
+    plt.show()
 
 def sequence_mask(X, valid_len, value=0):
     """Mask irrelevant entries in sequences.
@@ -141,3 +174,9 @@ class Accumulator:
 
     def __getitem__(self, idx):
         return self.data[idx]
+
+
+if __name__ == '__main__':
+    data = {10: 20, 15: 30, 20: 25, 25: 10, 30: 5}
+    draw_column(data)
+    draw_box(data)

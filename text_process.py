@@ -15,18 +15,29 @@ def tokenize(lines, token='word'):
 
 class Vocab:
     """Vocabulary for text."""
-    def __init__(self, tokens=None, min_freq=0, reserved_tokens=None):
+    def __init__(self, tokens=None, min_freq=0, reserved_tokens=None, use_txt=False, text_path=None):
         """Defined in :numref:`sec_text_preprocessing`"""
         if tokens is None:
             tokens = []
         if reserved_tokens is None:
             reserved_tokens = []
-        # Sort according to frequencies
-        counter = count_corpus(tokens)
-        self._token_freqs = sorted(counter.items(), key=lambda x: x[1], reverse=True)
         # The index for the unknown token is 0
         self.idx_to_token = ['<unk>'] + reserved_tokens
         self.token_to_idx = {token: idx for idx, token in enumerate(self.idx_to_token)}
+
+        if use_txt and text_path is not None:
+            with open(text_path, 'r') as f:
+                lines = f.readlines()
+                for t in lines:
+                    if t not in self.token_to_idx:
+                        t = t.split('\n')[0]
+                        self.idx_to_token.append(t)
+                        self.token_to_idx[t] = len(self.idx_to_token) - 1
+            return
+
+        # Sort according to frequencies
+        counter = count_corpus(tokens)
+        self._token_freqs = sorted(counter.items(), key=lambda x: x[1], reverse=True)
         for token, freq in self._token_freqs:
             if freq < min_freq:
                 break
@@ -55,6 +66,7 @@ class Vocab:
     def token_freqs(self):  # Index for the unknown token
         return self._token_freqs
 
+
 def count_corpus(tokens):
     """Count token frequencies.
 
@@ -64,3 +76,9 @@ def count_corpus(tokens):
         # Flatten a list of token lists into a list of tokens
         tokens = [token for line in tokens for token in line]
     return collections.Counter(tokens)
+
+
+if __name__ == '__main__':
+    vocab = Vocab(None, min_freq=5, reserved_tokens=['<pad>', '<mask>', '<cls>', '<sep>'], use_txt=True,
+                  text_path='./vocab.txt')
+    print(len(vocab))

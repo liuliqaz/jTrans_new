@@ -1,19 +1,51 @@
+import gc
 import torch
 from text_process import tokenize, Vocab
 import random
 import os
 import re
+import collections
+import utils
 
 
 def read_blocks(data_dir):
-    with open(data_dir, 'r') as f:
-        p_lines = f.readlines()
-    res_lines = []
-    for line in p_lines:
-        if line[:4] == '[ph]':
-            continue
-        res_lines.append(line[:-1].split('\t'))
+    # with open(data_dir, 'r') as f:
+    #     p_lines = f.readlines()
+    # res_lines = []
+    # for line in p_lines:
+    #     if line[:4] == '[ph]':
+    #         continue
+    #     res_lines.append(line[:-1].split('\t'))
 
+    res_lines = []
+    with open(data_dir, 'r') as f:
+        while True:
+            # 读取1000行
+            lines = f.readlines(1000)
+
+            # 如果已经读取完了所有行，退出循环
+            if not lines:
+                break
+
+            # 处理读取到的1000行数据
+            for line in lines:
+                if line[:4] == '[ph]':
+                    continue
+                res_lines.append(line[:-1].split('\t'))
+    print('[data_read]total_sentence=', len(res_lines))
+    # new_lines = random.sample(res_lines, 500000)
+    # del res_lines
+    # gc.collect()
+    # print('[data_read]new_lines_len=', len(new_lines))
+    # len_map = {}
+    # for blocks in new_lines:
+    #     for b in blocks:
+    #         if len(b) in len_map:
+    #             len_map[len(b)] += 1
+    #         else:
+    #             len_map[len(b)] = 1
+    # utils.draw_box(len_map)
+    # utils.draw_column(len_map)
     return res_lines
 
 
@@ -40,18 +72,18 @@ def get_tokens_and_segments(tokens_a, tokens_b=None):
     return tokens, segments
 
 
-def _get_nsp_data_from_paragraph(block, blocks, vocab, max_len):
+def _get_nsp_data_from_paragraph(func, func_list, vocab, max_len):
     nsp_data_from_paragraph = []
-    for i in range(len(block) - 1):
-        tokens_a, tokens_b, is_next = get_next_sentence(block[i], block[i + 1], blocks)
+    for i in range(len(func) - 1):
+        tokens_a, tokens_b, is_next = get_next_sentence(func[i], func[i + 1], func_list)
         if len(tokens_a) + len(tokens_b) + 3 > max_len:
             continue
         tokens, segments = get_tokens_and_segments(tokens_a, tokens_b)
         nsp_data_from_paragraph.append((tokens, segments, is_next))
-        match_jump_id = re.match(r'^JUMP_ADDR_([0-9]*)$', block[i][-1], re.M | re.I)
+        match_jump_id = re.match(r'^JUMP_ADDR_([0-9]*)$', func[i][-1], re.M | re.I)
         if match_jump_id:
             jump_addr = int(match_jump_id.group(1))
-            tokens_a, tokens_b, is_next = get_next_sentence(block[i], block[jump_addr], blocks)
+            tokens_a, tokens_b, is_next = get_next_sentence(func[i], func[jump_addr], func_list)
             if len(tokens_a) + len(tokens_b) + 3 > max_len:
                 continue
             tokens, segments = get_tokens_and_segments(tokens_a, tokens_b)
@@ -120,16 +152,20 @@ def pad_bert_inputs(examples, max_len, vocab):
 
 
 class _JTransTextDataset(torch.utils.data.Dataset):
-    def __init__(self, blocks, max_len):
+    def __init__(self, func_list, max_len):
         # 输入paragraphs[i]是代表段落的句子字符串列表；
         # 而输出paragraphs[i]是代表段落的句子列表，其中每个句子都是词元列表
-        blocks = [tokenize(block, token='word') for block in blocks]
-        instructions = [instruction for block in blocks for instruction in block]
-        self.vocab = Vocab(instructions, min_freq=5, reserved_tokens=['<pad>', '<mask>', '<cls>', '<sep>'])
+        for idx, func in enumerate(func_list):
+            func_list[idx] = [block.split() for block in func]
+            if idx % 1000 == 0:
+                gc.collect()
+        # func_list = [tokenize(func, token='word') for func in func_list]
+        # instructions = [instruction for block in blocks for instruction in block]
+        self.vocab = Vocab(None, min_freq=5, reserved_tokens=['<pad>', '<mask>', '<cls>', '<sep>'], use_txt=True, text_path='./vocab.txt')
         # 获取下一句子预测任务的数据
         examples = []
-        for block in blocks:
-            examples.extend(_get_nsp_data_from_paragraph(block, blocks, self.vocab, max_len))
+        for func in func_list:
+            examples.extend(_get_nsp_data_from_paragraph(func, func_list, self.vocab, max_len))
         # 获取遮蔽语言模型任务的数据
         examples = [(_get_mlm_data_from_tokens(tokens, self.vocab) + (segments, is_next)) for tokens, segments, is_next in examples]
         # 填充输入
@@ -155,13 +191,15 @@ class _JTransTextDataset(torch.utils.data.Dataset):
 
 
 def load_data_jtrans(data_dir, batch_size, max_len, num_workers):
-    blocks = read_blocks(data_dir)
-    train_set = _JTransTextDataset(blocks, max_len)
+    func_list = read_blocks(data_dir)
+    train_set = _JTransTextDataset(func_list, max_len)
     train_iter = torch.utils.data.DataLoader(train_set, batch_size, shuffle=True, num_workers=num_workers)
     return train_iter, train_set.vocab
 
 
 if __name__ == '__main__':
     batch_size, max_len = 512, 64
-    data_path = './data/paragraphs.txt'
-    load_data_jtrans(data_path, batch_size, max_len, 4)
+    # data_path = './data/paragraphs.txt'
+    data_path = '../jTrans/small_jTrans_proj.txt'
+    train_iter, vocab = load_data_jtrans(data_path, batch_size, max_len, 4)
+    print(len(vocab))
