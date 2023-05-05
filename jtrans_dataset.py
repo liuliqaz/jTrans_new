@@ -1,4 +1,6 @@
 import gc
+import math
+from tqdm import tqdm
 import torch
 from text_process import tokenize, Vocab
 import random
@@ -6,8 +8,7 @@ import os
 import re
 import collections
 import utils
-from tqdm import tqdm
-import math
+import pickle
 
 
 def read_blocks(data_dir):
@@ -158,14 +159,25 @@ class _JTransTextDataset(torch.utils.data.Dataset):
         # 输入paragraphs[i]是代表段落的句子字符串列表；
         # 而输出paragraphs[i]是代表段落的句子列表，其中每个句子都是词元列表
         func_list = [tokenize(func, token='word') for func in func_list]
+
+        # for idx, func in enumerate(func_list):
+        #     func_list[idx] = [block.split() for block in func]
+        #     if idx % 10000 == 0:
+        #         print('[gc]idx=', idx, ', total=', len(func_list))
+        #         gc.collect()
+        # # func_list = [tokenize(func, token='word') for func in func_list]
+        # # gc.collect()
+
         # instructions = [instruction for block in blocks for instruction in block]
         self.vocab = Vocab(None, min_freq=5, reserved_tokens=['<pad>', '<mask>', '<cls>', '<sep>'], use_txt=True, text_path='./vocab.txt')
         # 获取下一句子预测任务的数据
         examples = []
         for func in func_list:
             examples.extend(_get_nsp_data_from_paragraph(func, func_list, self.vocab, max_len))
+        gc.collect()
         # 获取遮蔽语言模型任务的数据
         examples = [(_get_mlm_data_from_tokens(tokens, self.vocab) + (segments, is_next)) for tokens, segments, is_next in examples]
+        gc.collect()
         # 填充输入
         (self.all_token_ids,
          self.all_segments,
@@ -195,15 +207,14 @@ def load_data_jtrans(data_dir, batch_size, max_len, num_workers):
     return train_iter, train_set.vocab
 
 
-
 def load_save_data_jtrans(data_dir, max_len):
     func_list = read_blocks(data_dir)
-    sep = 51200
+    sep = 25600
     for i in tqdm(range(math.ceil(len(func_list) / sep))):
         sub_func_list = func_list[i*sep: min((i+1)*sep, len(func_list))]
         train_set = _JTransTextDataset(sub_func_list, max_len)
         wt = train_set[:]
-        dump_dir = f'./data_set/data_{i}.pkl'
+        dump_dir = f'data_{i}.pkl'
         print(dump_dir)
         pickle.dump(wt, open(dump_dir, 'wb'))
 
