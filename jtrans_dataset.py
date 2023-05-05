@@ -1,4 +1,6 @@
 import gc
+import math
+from tqdm import tqdm
 import torch
 from text_process import tokenize, Vocab
 import random
@@ -6,6 +8,7 @@ import os
 import re
 import collections
 import utils
+import pickle
 
 
 def read_blocks(data_dir):
@@ -21,7 +24,7 @@ def read_blocks(data_dir):
     with open(data_dir, 'r') as f:
         while True:
             # 读取1000行
-            lines = f.readlines(1000)
+            lines = f.readlines(10000)
 
             # 如果已经读取完了所有行，退出循环
             if not lines:
@@ -157,17 +160,21 @@ class _JTransTextDataset(torch.utils.data.Dataset):
         # 而输出paragraphs[i]是代表段落的句子列表，其中每个句子都是词元列表
         for idx, func in enumerate(func_list):
             func_list[idx] = [block.split() for block in func]
-            if idx % 1000 == 0:
+            if idx % 10000 == 0:
+                print('[gc]idx=', idx, ', total=', len(func_list))
                 gc.collect()
         # func_list = [tokenize(func, token='word') for func in func_list]
+        # gc.collect()
         # instructions = [instruction for block in blocks for instruction in block]
         self.vocab = Vocab(None, min_freq=5, reserved_tokens=['<pad>', '<mask>', '<cls>', '<sep>'], use_txt=True, text_path='./vocab.txt')
         # 获取下一句子预测任务的数据
         examples = []
         for func in func_list:
             examples.extend(_get_nsp_data_from_paragraph(func, func_list, self.vocab, max_len))
+        gc.collect()
         # 获取遮蔽语言模型任务的数据
         examples = [(_get_mlm_data_from_tokens(tokens, self.vocab) + (segments, is_next)) for tokens, segments, is_next in examples]
+        gc.collect()
         # 填充输入
         (self.all_token_ids,
          self.all_segments,
@@ -197,9 +204,76 @@ def load_data_jtrans(data_dir, batch_size, max_len, num_workers):
     return train_iter, train_set.vocab
 
 
+def load_save_data_jtrans(data_dir, max_len):
+    func_list = read_blocks(data_dir)
+    sep = 25600
+    for i in tqdm(range(math.ceil(len(func_list) / sep))):
+        sub_func_list = func_list[i*sep: min((i+1)*sep, len(func_list))]
+        train_set = _JTransTextDataset(sub_func_list, max_len)
+        wt = train_set[:]
+        dump_dir = f'data_{i}.pkl'
+        print(dump_dir)
+        pickle.dump(wt, open(dump_dir, 'wb'))
+
+        del wt
+        del sub_func_list
+        del train_set
+        gc.collect()
+
+
+def read_pkl(pkl_path):
+    with open(pkl_path, 'rb') as f:
+        a = pickle.load(f)
+        print('done')
+    print(len(a))
+
+
+class PartDataIter:
+    def __init__(self, all_token_ids, all_segments, valid_lens, all_pred_positions, all_mlm_weights, all_mlm_labels, nsp_labels):
+        self.all_token_ids = all_token_ids
+        self.all_segments = all_segments
+        self.valid_lens = valid_lens
+        self.all_pred_positions = all_pred_positions
+        self.all_mlm_weights = all_mlm_weights
+        self.all_mlm_labels = all_mlm_labels
+        self.nsp_labels = nsp_labels
+
+    def __getitem__(self, idx):
+        return (self.all_token_ids[idx],
+                self.all_segments[idx],
+                self.valid_lens[idx],
+                self.all_pred_positions[idx],
+                self.all_mlm_weights[idx],
+                self.all_mlm_labels[idx],
+                self.nsp_labels[idx])
+
+    def __len__(self):
+        return len(self.all_token_ids)
+
+
+def read_pkl_to_data_set(pkl_path, batch_size, num_workers):
+    with open(pkl_path, 'rb') as f:
+        a = pickle.load(f)
+        train_set = PartDataIter(a[0], a[1], a[2], a[3], a[4], a[5], a[6])
+        train_iter = torch.utils.data.DataLoader(train_set, batch_size, shuffle=True, num_workers=num_workers)
+        return train_iter
+
+
 if __name__ == '__main__':
-    batch_size, max_len = 512, 64
-    # data_path = './data/paragraphs.txt'
-    data_path = '../jTrans/small_jTrans_proj.txt'
-    train_iter, vocab = load_data_jtrans(data_path, batch_size, max_len, 4)
-    print(len(vocab))
+
+    # read & write data
+    # batch_size, max_len = 512, 64
+    # # data_path = './data/paragraphs.txt'
+    # data_path = '../jTrans/small_jTrans_proj.txt'
+    # # train_iter, vocab = load_data_jtrans(data_path, batch_size, max_len, 4)
+    # load_save_data_jtrans(data_path, max_len)
+
+    # read_pkl('data_set/data_0.pkl')
+    train_iter = read_pkl_to_data_set('data_set/data_0.pkl', 512, 4)
+
+    for (tokens_X, segments_X, valid_lens_x, pred_positions_X, mlm_weights_X, mlm_Y, nsp_y) in train_iter:
+        print(tokens_X.shape, segments_X.shape, valid_lens_x.shape,
+              pred_positions_X.shape, mlm_weights_X.shape, mlm_Y.shape,
+              nsp_y.shape)
+
+    print('done')
