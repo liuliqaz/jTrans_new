@@ -6,33 +6,35 @@ import os
 import re
 import collections
 import utils
+from tqdm import tqdm
+import math
 
 
 def read_blocks(data_dir):
-    # with open(data_dir, 'r') as f:
-    #     p_lines = f.readlines()
-    # res_lines = []
-    # for line in p_lines:
-    #     if line[:4] == '[ph]':
-    #         continue
-    #     res_lines.append(line[:-1].split('\t'))
-
-    res_lines = []
     with open(data_dir, 'r') as f:
-        while True:
-            # 读取1000行
-            lines = f.readlines(1000)
+        p_lines = f.readlines()
+    res_lines = []
+    for line in p_lines:
+        if line[:4] == '[ph]':
+            continue
+        res_lines.append(line[:-1].split('\t'))
 
-            # 如果已经读取完了所有行，退出循环
-            if not lines:
-                break
+    # res_lines = []
+    # with open(data_dir, 'r') as f:
+    #     while True:
+    #         # 读取1000行
+    #         lines = f.readlines(1000)
 
-            # 处理读取到的1000行数据
-            for line in lines:
-                if line[:4] == '[ph]':
-                    continue
-                res_lines.append(line[:-1].split('\t'))
-    print('[data_read]total_sentence=', len(res_lines))
+    #         # 如果已经读取完了所有行，退出循环
+    #         if not lines:
+    #             break
+
+    #         # 处理读取到的1000行数据
+    #         for line in lines:
+    #             if line[:4] == '[ph]':
+    #                 continue
+    #             res_lines.append(line[:-1].split('\t'))
+    print('[data_read]total_functions=', len(res_lines))
     # new_lines = random.sample(res_lines, 500000)
     # del res_lines
     # gc.collect()
@@ -155,11 +157,7 @@ class _JTransTextDataset(torch.utils.data.Dataset):
     def __init__(self, func_list, max_len):
         # 输入paragraphs[i]是代表段落的句子字符串列表；
         # 而输出paragraphs[i]是代表段落的句子列表，其中每个句子都是词元列表
-        for idx, func in enumerate(func_list):
-            func_list[idx] = [block.split() for block in func]
-            if idx % 1000 == 0:
-                gc.collect()
-        # func_list = [tokenize(func, token='word') for func in func_list]
+        func_list = [tokenize(func, token='word') for func in func_list]
         # instructions = [instruction for block in blocks for instruction in block]
         self.vocab = Vocab(None, min_freq=5, reserved_tokens=['<pad>', '<mask>', '<cls>', '<sep>'], use_txt=True, text_path='./vocab.txt')
         # 获取下一句子预测任务的数据
@@ -197,9 +195,49 @@ def load_data_jtrans(data_dir, batch_size, max_len, num_workers):
     return train_iter, train_set.vocab
 
 
+
+def load_save_data_jtrans(data_dir, max_len):
+    func_list = read_blocks(data_dir)
+    sep = 51200
+    for i in tqdm(range(math.ceil(len(func_list) / sep))):
+        sub_func_list = func_list[i*sep: min((i+1)*sep, len(func_list))]
+        train_set = _JTransTextDataset(sub_func_list, max_len)
+        wt = train_set[:]
+        dump_dir = f'./data_set/data_{i}.pkl'
+        print(dump_dir)
+        pickle.dump(wt, open(dump_dir, 'wb'))
+
+        del wt
+        del sub_func_list
+        del train_set
+        gc.collect()
+
+
+def make_smaller_dataset(data_dir):
+    func_list = read_blocks(data_dir)
+    func_len_list = [sum([len(block.split()) for block in func]) for func in func_list]
+    sample_list = []
+    for idx in range(len(func_list)):
+        if func_len_list[idx] > 21 and func_len_list[idx] < 375:
+            sample_list.append(func_list[idx])
+    
+    print(len(sample_list))
+    new_lines = random.sample(sample_list, 1000000)
+
+    with open('tiny_data.txt', 'a+') as f:
+        for func in new_lines:
+            f.write('\t'.join(func) + '\n')
+
+
+
 if __name__ == '__main__':
-    batch_size, max_len = 512, 64
-    # data_path = './data/paragraphs.txt'
-    data_path = '../jTrans/small_jTrans_proj.txt'
+    batch_size, max_len = 512, 768
+    # data_path = './data/func_list.txt'
+    data_path = './tiny_data.txt'
+    
     train_iter, vocab = load_data_jtrans(data_path, batch_size, max_len, 4)
     print(len(vocab))
+
+    # make_smaller_dataset(data_path)
+
+    # load_save_data_jtrans('../jTrans_proj.txt', data_path)

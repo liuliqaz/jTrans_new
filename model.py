@@ -56,3 +56,17 @@ class BERTModel(nn.Module):
         # 用于下一句预测的多层感知机分类器的隐藏层，0是“<cls>”标记的索引
         nsp_Y_hat = self.nsp(self.hidden(encoded_X[:, 0, :]))
         return encoded_X, mlm_Y_hat, nsp_Y_hat
+
+
+def getBaseBert(vocab_len):
+    hidden_size = 786
+    ffn_num_hiddens = hidden_size * 4
+    num_head = 12
+    num_layer = 12
+    drop_out = 0.1
+    net = BERTModel(vocab_len, num_hiddens=hidden_size, norm_shape=[hidden_size],
+                    ffn_num_input=hidden_size, ffn_num_hiddens=ffn_num_hiddens, num_heads=num_head,
+                    num_layers=num_layer, dropout=drop_out, key_size=hidden_size, query_size=hidden_size,
+                    value_size=hidden_size, hid_in_features=hidden_size, mlm_in_features=hidden_size,
+                    nsp_in_features=hidden_size)
+    return net 
